@@ -1,0 +1,92 @@
+name: Homelab Build and Run
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - main
+jobs:
+  build-and-deploy:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        run: |
+          docker buildx create --use
+          docker buildx inspect --bootstrap
+        shell: bash
+
+      - name: Log in to Local Registry
+        run: |
+          docker login harbor.local.jushack.tech -u ${{ secrets.REGISTRY_USERNAME }} -p ${{ secrets.REGISTRY_PASSWORD }}
+        shell: bash
+
+      - name: Build and Push Multi-arch Docker Image
+        run: |
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --tag harbor.local.jushack.tech/docker/dumbdrop:latest \
+            --push \
+            .
+        shell: bash
+
+      - name: Deploy to server using SSH
+        env:
+          SSH_USER: ${{ secrets.SSH_USERNAME }}
+          SSH_PASS: ${{ secrets.SSH_PASSWORD }}
+        run: |
+          # Create deployment script with error handling
+          DEPLOY_SCRIPT="""
+          set -e  # Exit on error
+          
+          echo 'Creating data directory...'
+          mkdir -p /app/data
+          mkdir -p /app/uploads
+          
+          echo 'Logging into registry...'
+          docker login harbor.local.jushack.tech -u ${{ secrets.REGISTRY_USERNAME }} -p ${{ secrets.REGISTRY_PASSWORD }}
+          
+          echo 'Pulling latest image...'
+          docker pull harbor.local.jushack.tech/docker/dumbdrop:latest
+          
+          echo 'Stopping old container...'
+          docker stop dumbdrop || true
+          docker rm dumbdrop || true
+          
+          echo 'Starting new container...'
+          docker run -d \
+            --name dumbdrop \
+            --platform linux/amd64 \
+            -p 3002:3000 \
+            -v /app/uploads:/app/uploads \
+            -e DUMBDROP_TITLE=DumbDrop \
+            -e MAX_FILE_SIZE=1024 \
+            -e DUMBDROP_PIN=123456 \
+            -e AUTO_UPLOAD=false \
+            --restart unless-stopped \
+            harbor.local.jushack.tech/docker/dumbdrop:latest
+          
+          echo 'Verifying container status...'
+          docker ps | grep dumbdrop || echo 'Container status check failed, but container might still be running'
+          
+          # Check if container is actually running
+          if docker ps --format '{{.Names}}' | grep -q '^dumbdrop$'; then
+            echo 'Container is running successfully'
+            exit 0
+          else
+            echo 'Container failed to start'
+            exit 1
+          fi
+          """
+          
+          export SSHPASS="${SSH_PASS}"
+          sshpass -e ssh -o StrictHostKeyChecking=no ${SSH_USER}@192.168.248.79 "${DEPLOY_SCRIPT}"
+        shell: bash
+        continue-on-error: true
