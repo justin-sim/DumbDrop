@@ -17,8 +17,22 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
       
-      - name: Set up Docker Buildx
+      - name: Install and Set up Docker Buildx
         run: |
+          # Check if Docker CLI plugins directory exists, create if not
+          mkdir -p ~/.docker/cli-plugins
+          
+          # Download the latest buildx binary
+          BUILDX_URL=$(curl -s https://api.github.com/repos/docker/buildx/releases/latest | grep "browser_download_url.*linux-amd64" | cut -d '"' -f 4)
+          wget -O ~/.docker/cli-plugins/docker-buildx $BUILDX_URL
+          
+          # Make binary executable
+          chmod +x ~/.docker/cli-plugins/docker-buildx
+          
+          # Verify installation
+          docker buildx version
+          
+          # Set up buildx
           docker buildx create --use
           docker buildx inspect --bootstrap
         shell: bash
