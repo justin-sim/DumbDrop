@@ -1,0 +1,68 @@
+name: Local Build and Run
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - main
+jobs:
+  build-and-deploy:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Docker Buildx
+        run: |
+          docker buildx create --use
+          docker buildx inspect --bootstrap
+        shell: bash
+      
+      - name: Build Docker Image
+        run: |
+          # Build for the local architecture only
+          docker build -t dumbdrop:latest .
+        shell: bash
+      
+      - name: Create Local Directories
+        run: |
+          mkdir -p /app/data
+          mkdir -p /app/uploads
+        shell: bash
+      
+      - name: Stop and Remove Existing Container
+        run: |
+          docker stop dumbdrop || true
+          docker rm dumbdrop || true
+        shell: bash
+      
+      - name: Deploy Container Locally
+        run: |
+          docker run -d \
+            --name dumbdrop \
+            -p 3002:3000 \
+            -v /app/uploads:/app/uploads \
+            -e DUMBDROP_TITLE=DumbDrop \
+            -e MAX_FILE_SIZE=1024 \
+            -e DUMBDROP_PIN=123456 \
+            -e AUTO_UPLOAD=false \
+            --restart unless-stopped \
+            dumbdrop:latest
+        shell: bash
+      
+      - name: Verify Container Status
+        run: |
+          # Check if container is running
+          if docker ps --format '{{.Names}}' | grep -q '^dumbdrop$'; then
+            echo 'Container is running successfully'
+          else
+            echo 'Container failed to start'
+            docker logs dumbdrop
+            exit 1
+          fi
+        shell: bash
