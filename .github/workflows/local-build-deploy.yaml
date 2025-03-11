@@ -17,6 +17,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
       
+      - name: Check Docker Permissions
+        run: |
+          # Make sure current user has Docker permissions
+          echo "Current user: $(whoami)"
+          
+          # Try to add current user to Docker group and reconnect
+          sudo usermod -aG docker $USER || true
+          
+          # Alternative: use sudo for all Docker commands
+          # This will be used in the next steps
+          docker version || sudo docker version
+        shell: bash
+          
       - name: Install and Set up Docker Buildx
         run: |
           # Check if Docker CLI plugins directory exists, create if not
@@ -30,34 +43,36 @@ jobs:
           chmod +x ~/.docker/cli-plugins/docker-buildx
           
           # Verify installation
-          docker buildx version
+          sudo docker buildx version
           
-          # Set up buildx
-          docker buildx create --use
-          docker buildx inspect --bootstrap
+          # Set up buildx (with sudo)
+          sudo docker buildx create --use
+          sudo docker buildx inspect --bootstrap
         shell: bash
       
       - name: Build Docker Image
         run: |
           # Build for the local architecture only
-          docker build -t dumbdrop:latest .
+          sudo docker build -t dumbdrop:latest .
         shell: bash
       
       - name: Create Local Directories
         run: |
-          mkdir -p /app/data
-          mkdir -p /app/uploads
+          sudo mkdir -p /app/data
+          sudo mkdir -p /app/uploads
+          # Ensure proper permissions
+          sudo chmod -R 777 /app/uploads
         shell: bash
       
       - name: Stop and Remove Existing Container
         run: |
-          docker stop dumbdrop || true
-          docker rm dumbdrop || true
+          sudo docker stop dumbdrop || true
+          sudo docker rm dumbdrop || true
         shell: bash
       
       - name: Deploy Container Locally
         run: |
-          docker run -d \
+          sudo docker run -d \
             --name dumbdrop \
             -p 3002:3000 \
             -v /app/uploads:/app/uploads \
@@ -72,11 +87,11 @@ jobs:
       - name: Verify Container Status
         run: |
           # Check if container is running
-          if docker ps --format '{{.Names}}' | grep -q '^dumbdrop$'; then
+          if sudo docker ps --format '{{.Names}}' | grep -q '^dumbdrop; then
             echo 'Container is running successfully'
           else
             echo 'Container failed to start'
-            docker logs dumbdrop
+            sudo docker logs dumbdrop
             exit 1
           fi
         shell: bash
